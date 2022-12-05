@@ -73,56 +73,48 @@ namespace HyperBulk
 
 
                 var timer = new PeriodicTimer(TimeSpan.FromSeconds(_settings.AppSettings.ConsumeDelay));
-                try
+                while (await timer.WaitForNextTickAsync())
                 {
-                    while (await timer.WaitForNextTickAsync())
+                    lock (LockObj)
                     {
-                        lock (LockObj)
+                        if (Lasttag != Firsttag && BulkMessage.Count() > 0)
                         {
-                            if (Lasttag != Firsttag && BulkMessage.Count() > 0)
+                            try
                             {
-                                try
+                                ConsumerPolicy.Execute(() =>
                                 {
-                                    ConsumerPolicy.Execute(() =>
-                                    {
-                                        if (channel.IsOpen)
-                                            Received(BulkMessage);
-                                    });
                                     if (channel.IsOpen)
-                                        channel.BasicAck(Firsttag, true);
-                                }
-                                catch (Exception ex)
-                                {
-                                    Console.WriteLine(ex.Message);
-                                    if (channel.IsOpen)
-                                        channel.BasicNack(Firsttag, true, false);
-                                }
-                                if (channel.IsClosed || channel == null)
-                                {
-                                    timer.Dispose();
-                                    Firsttag = 0;
-                                    break;
-                                }
-                                BulkMessage.Clear();
-
-                                if (_settings.RabbitMQSettings.PrefetchOrigins.Count > 0)
-                                {
-                                    QueueMessageCount = channel.MessageCount(_settings.RabbitMQSettings.QueueName);
-                                    pair = _settings.RabbitMQSettings.PrefetchOrigins.Where(a => a.Key < 0).OrderByDescending(x => x.Key).FirstOrDefault();
-                                    if (pair.Key == 0)
-                                        channel.BasicQos(0, 10, true);
-                                    else
-                                        channel.BasicQos(0, pair.Value, true);
-                                }
-                                Lasttag = Firsttag;
+                                        Received(BulkMessage);
+                                });
+                                if (channel.IsOpen)
+                                    channel.BasicAck(Firsttag, true);
                             }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.Message);
+                                if (channel.IsOpen)
+                                    channel.BasicNack(Firsttag, true, false);
+                            }
+                            if (channel.IsClosed || channel == null)
+                            {
+                                timer.Dispose();
+                                Firsttag = 0;
+                                break;
+                            }
+                            BulkMessage.Clear();
+
+                            if (_settings.RabbitMQSettings.PrefetchOrigins.Count > 0)
+                            {
+                                QueueMessageCount = channel.MessageCount(_settings.RabbitMQSettings.QueueName);
+                                pair = _settings.RabbitMQSettings.PrefetchOrigins.Where(a => a.Key < 0).OrderByDescending(x => x.Key).FirstOrDefault();
+                                if (pair.Key == 0)
+                                    channel.BasicQos(0, 10, true);
+                                else
+                                    channel.BasicQos(0, pair.Value, true);
+                            }
+                            Lasttag = Firsttag;
                         }
                     }
-                }
-                catch (Exception)
-                {
-
-                    throw;
                 }
             }
         }
